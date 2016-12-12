@@ -1,0 +1,86 @@
+---
+title: "Human Activity Recognition"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+### Executive Summary
+In this project, we use a machine learning model to predict the type of activity from the measurements collected on 8 hours of activities of 4 human subjects.
+
+
+### Exploratory Data Analysis
+We load the data, check the dimensions and look at variable names to get a sense of the data. Names are not printed here for the sake of brevity of this report.
+```{r load, echo = TRUE}
+training = read.csv("pml-training.csv")
+testing = read.csv("pml-testing.csv")
+dim(training)
+dim(testing)
+```
+```{r, echo=TRUE, results='hide'}
+names(training)
+```
+
+The figure below illustrates the distribution of classifications in the training data set. We see that all five classifications are fairly equally distributed.
+```{r barplot, echo = TRUE}
+plot(training$classe, col = "blue", xlab = "Activity classification", ylab = "Frequency", main = "Bar plot of activity classes")
+```
+
+### Slicing the data
+We divide the the training data into two parts: 60% training which would be used to train the model, and 40% testing to be used for model validation. The former is named "valtraining" and the later as "valtesting".
+```{r slicing, echo = TRUE}
+library(caret)
+set.seed(32454)
+inTrain = createDataPartition(y=training$classe, p = 0.6, list = F)
+valtraining=training[inTrain,]
+valtesting = training[-inTrain,]
+dim(valtesting)
+dim(valtraining)
+```
+
+### Cleaning the covariates
+The number of variables in the dataset is 160. From the variable names, the first appear to be for index, the second is subject name, and the next three are some time stamps.  None of these five are likely to be activity measurements so we drop these variables. Furthermore, some of the variables might have zero or near zero variance which are undesirable for tuning most of the ML models, so we find such variables and remove them from our covariates. Lastly, we know that most machine learning algorithms do not work when variables contain "NA", hence we remove all variables that include any "NA".
+```{r covariates, echo = TRUE}
+valtraining <- valtraining[,-1:-5]
+nzv = nearZeroVar(valtraining)
+valtraining = valtraining[,-nzv]
+valtraining = valtraining[,colSums(is.na(valtraining))==0]
+dim(valtraining)
+```
+
+### Building the model
+We decide to start with the random forest model since it is among the highest performance ML algorithm in most situations. However, overfitting is a significant concern in RF models, which might result in significant out of sample error. In order to identify the possibility of overfitting in our training data, we perform 5-fold cross validation and compute prediction performance with sequentially reduced number of predictors. 
+```{r cv1, echo = TRUE, cache=TRUE}
+library(randomForest)
+cvout <- rfcv(valtraining[,-54],valtraining[,54], cv.fold = 5)
+```
+The figure below shows that the cross-validation error is high when number of covariates is less than 3, however, it is close to 0 if the number of variables is anything more than 7. The result of this cross-validation analysis indicates that we can expect low out-of-sample error if in-sample error (accuracy) is also low.   
+
+```{r cv2, echo = TRUE, cache=TRUE}
+with(cvout, plot(n.var, error.cv, log="x", type="o", lwd=2, main="Plot of crossvalidation error vs number of covariates"))
+```
+
+
+Next we fit the random forest model on the training data with "classe" as the outcome and all the rest variables as predictors. Using our fitted model, we compute predicted outcomes for the validation data set (valtesting).
+
+```{r model, echo = TRUE, cache=TRUE}
+modRF = randomForest(classe~.,data=valtraining)
+predRF = predict(modRF,valtesting, type = "class")
+```
+
+We compute the confusion matrix of our prediction to analyze the prediction performance. 
+```{r checkaccuracy, echo = TRUE, cache=TRUE}
+confusionMatrix(valtesting$classe,predRF)
+```
+The accuracy is more than 99% and so is the kappa value. With such a high expected accuracy, we decide to use this random forest model to compute predictions for the testing data set.
+
+```{r testdata, echo = TRUE, cache=TRUE}
+testresult =  predict(modRF,testing)
+testresult
+```
+From the quiz result, the predicted classifications of the test data were 100% accurate.
+
+
+
